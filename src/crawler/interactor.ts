@@ -160,10 +160,17 @@ export class Interactor {
           break;
         }
 
-        // Skip navigation links — explorer handles those via BFS
-        if (element.tag === 'a' && element.href && this.isNavigationLink(element.href, page.url())) {
-          log.verbose(`Skipping nav link: ${element.text} → ${element.href}`);
-          continue;
+        // Skip external links — only interact within the target domain
+        if (element.tag === 'a' && element.href) {
+          if (this.isExternalLink(element.href, page.url())) {
+            log.verbose(`Skipping external link: ${element.text} → ${element.href}`);
+            continue;
+          }
+          // Skip same-domain navigation links — explorer handles those via BFS
+          if (this.isNavigationLink(element.href, page.url())) {
+            log.verbose(`Skipping nav link: ${element.text} → ${element.href}`);
+            continue;
+          }
         }
 
         await this.clickElement(page, element);
@@ -410,6 +417,17 @@ export class Interactor {
       } catch {
         log.warn(`Could not restore page to ${targetUrl}`);
       }
+    }
+  }
+
+  private isExternalLink(href: string, currentUrl: string): boolean {
+    try {
+      const resolved = new URL(href, currentUrl);
+      const baseHostname = new URL(this.config.url).hostname;
+      // Compare hostnames case-insensitively
+      return resolved.hostname.toLowerCase() !== baseHostname.toLowerCase();
+    } catch {
+      return true; // If we can't parse it, treat as external (skip)
     }
   }
 

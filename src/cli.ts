@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { Command } from 'commander';
 import { DEFAULT_CONFIG, DEFAULT_VIEWPORTS } from './config.js';
 import { runPipeline } from './index.js';
