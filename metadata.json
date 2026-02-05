@@ -1,0 +1,5 @@
+{
+  "name": "VibedQA Dashboard",
+  "description": "AI-powered Visual QA Analysis Dashboard using Gemini Vision to detect UI/UX regressions, layout shifts, and internationalization issues.",
+  "requestFramePermissions": []
+}
