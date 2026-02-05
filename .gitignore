@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# VibedQA
+vibedqa-reports/
+.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

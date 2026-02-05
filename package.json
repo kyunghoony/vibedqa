@@ -1,24 +1,37 @@
 {
-  "name": "vibedqa-dashboard",
-  "private": true,
-  "version": "0.0.0",
+  "name": "vibedqa",
+  "version": "0.1.0",
+  "description": "AI-powered visual QA that clicks through your app like a real user",
   "type": "module",
+  "bin": {
+    "vibedqa": "./dist/cli.js"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js"
   },
   "dependencies": {
-    "lucide-react": "^0.563.0",
-    "recharts": "^3.7.0",
-    "react-dom": "^19.2.4",
     "@google/genai": "^1.40.0",
-    "react": "^19.2.4"
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "playwright": "^1.51.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
-  }
+    "tsx": "^4.19.0",
+    "typescript": "~5.8.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "qa",
+    "testing",
+    "playwright",
+    "ai",
+    "visual-testing",
+    "gemini"
+  ],
+  "license": "MIT"
 }
