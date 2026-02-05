@@ -32,20 +32,17 @@ export class Explorer {
     if (currentDepth >= this.config.maxDepth) return [];
 
     const currentUrl = page.url();
-    const baseHostname = new URL(this.config.url).hostname;
+    const baseHostname = new URL(this.config.url).hostname.toLowerCase();
 
-    const links = await page.evaluate(
-      ({ baseHost }) => {
-        const anchors = document.querySelectorAll('a[href]');
-        const hrefs: string[] = [];
-        anchors.forEach((a) => {
-          const href = (a as HTMLAnchorElement).href;
-          if (href) hrefs.push(href);
-        });
-        return hrefs;
-      },
-      { baseHost: baseHostname },
-    );
+    const links = await page.evaluate(() => {
+      const anchors = document.querySelectorAll('a[href]');
+      const hrefs: string[] = [];
+      anchors.forEach((a) => {
+        const href = (a as HTMLAnchorElement).href;
+        if (href) hrefs.push(href);
+      });
+      return hrefs;
+    });
 
     const newLinks: string[] = [];
 
@@ -53,8 +50,8 @@ export class Explorer {
       try {
         const url = new URL(link, currentUrl);
 
-        // Same domain only
-        if (url.hostname !== baseHostname) continue;
+        // Same domain only (case-insensitive)
+        if (url.hostname.toLowerCase() !== baseHostname) continue;
 
         // Skip non-HTTP
         if (!url.protocol.startsWith('http')) continue;
@@ -66,7 +63,7 @@ export class Explorer {
         if (/\.(pdf|zip|png|jpg|jpeg|gif|svg|ico|css|js|woff|woff2|ttf|eot)$/i.test(url.pathname)) continue;
 
         // Skip common auth/external paths
-        if (/\/(logout|signout|auth\/|oauth\/)/i.test(url.pathname)) continue;
+        if (/\/(logout|signout|login|signin|auth\/|oauth\/)/i.test(url.pathname)) continue;
 
         const normalized = this.normalizeUrl(url.toString());
 
