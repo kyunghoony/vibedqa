@@ -14,8 +14,10 @@ export async function analyze(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     log.warn('GEMINI_API_KEY not set — skipping AI analysis');
+    log.warn('Set it in your .env file or export GEMINI_API_KEY=your_key');
     return { issues: [], screenshotsAnalyzed: 0, errorsAnalyzed: 0 };
   }
+  log.verbose(`GEMINI_API_KEY is set (${apiKey.length} chars)`);
 
   const allIssues: Issue[] = [];
   let screenshotsAnalyzed = 0;
@@ -30,7 +32,7 @@ export async function analyze(
 
   for (const screenshot of screenshots) {
     const context = `URL: ${screenshot.url}, State: ${screenshot.state}, Viewport: ${screenshot.viewport}`;
-    log.verbose(`Analyzing: ${screenshot.state}`);
+    log.verbose(`[${screenshotsAnalyzed + 1}/${screenshots.length}] Analyzing: ${screenshot.state} (${screenshot.path})`);
 
     const issues = await analyzeScreenshot(screenshot.path, context);
 
@@ -41,11 +43,15 @@ export async function analyze(
     allIssues.push(...issues);
     screenshotsAnalyzed++;
 
+    log.info(`  ↳ ${issues.length} issue(s) found [${screenshotsAnalyzed}/${screenshots.length}]`);
+
     // Rate limiting
     if (screenshotsAnalyzed < screenshots.length) {
       await new Promise((r) => setTimeout(r, AI_CALL_DELAY_MS));
     }
   }
+
+  log.verbose(`AI analysis complete: ${allIssues.length} total issues from ${screenshotsAnalyzed} screenshots`);
 
   // Analyze console errors from crawl results
   const allErrors = crawlResult.pages.flatMap((p) => p.errors);
