@@ -18,6 +18,8 @@ export class Interactor {
 
   /**
    * Discover all interactive elements on the current page.
+   * Uses CSS selectors first, then scans for cursor:pointer elements
+   * to catch custom clickable divs, icons, images, etc.
    */
   async discoverElements(page: Page): Promise<DiscoveredElement[]> {
     const viewportSize = page.viewportSize() || { width: 1280, height: 720 };
@@ -25,7 +27,6 @@ export class Interactor {
     const elements = await page.evaluate(
       ({ clickSel, inputSel, vpHeight }) => {
         const allSelectors = `${clickSel}, ${inputSel}`;
-        const nodeList = document.querySelectorAll(allSelectors);
         const results: Array<{
           selector: string;
           tag: string;
@@ -36,9 +37,21 @@ export class Interactor {
           boundingBox?: { x: number; y: number; width: number; height: number };
         }> = [];
         const seen = new Set<string>();
+        const processedEls = new WeakSet<Element>();
 
-        nodeList.forEach((el, idx) => {
-          const htmlEl = el as HTMLElement;
+        function isElVisible(htmlEl: HTMLElement, rect: DOMRect): boolean {
+          const style = window.getComputedStyle(htmlEl);
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.top < vpHeight + 200
+          );
+        }
+
+        function extractInfo(htmlEl: HTMLElement) {
           const rect = htmlEl.getBoundingClientRect();
           const tag = htmlEl.tagName.toLowerCase();
           const type =
@@ -51,37 +64,30 @@ export class Interactor {
             htmlEl.getAttribute('placeholder') ||
             htmlEl.getAttribute('title') ||
             htmlEl.getAttribute('name') ||
+            htmlEl.getAttribute('alt') ||
             ''
           ).slice(0, 80);
-
           const href = htmlEl.getAttribute('href') || undefined;
-
-          // Determine visibility
-          const style = window.getComputedStyle(htmlEl);
-          const isVisible =
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            style.opacity !== '0' &&
-            rect.width > 0 &&
-            rect.height > 0 &&
-            rect.top < vpHeight + 200; // slightly below fold OK
-
-          // Generate a unique-ish selector
           const id = htmlEl.id ? `#${htmlEl.id}` : '';
-          const classes = htmlEl.className && typeof htmlEl.className === 'string'
-            ? '.' + htmlEl.className.trim().split(/\s+/).slice(0, 2).join('.')
-            : '';
-          const nthSelector = `${tag}${id}${classes}`;
+          return { rect, tag, type, text, href, id };
+        }
 
-          // Dedup by text+tag+type to avoid clicking same button twice
+        function addElement(
+          htmlEl: HTMLElement,
+          selectorOverride?: string,
+        ): void {
+          if (processedEls.has(htmlEl)) return;
+          processedEls.add(htmlEl);
+
+          const { rect, tag, type, text, href, id } = extractInfo(htmlEl);
+          const isVisible = isElVisible(htmlEl, rect);
+
           const dedup = `${tag}|${type}|${text}|${Math.round(rect.top)}`;
           if (seen.has(dedup)) return;
           seen.add(dedup);
 
           results.push({
-            selector: id
-              ? `${tag}${id}`
-              : `(${allSelectors}):nth-match(${tag}, ${idx + 1})`,
+            selector: selectorOverride || (id ? `${tag}${id}` : `${tag}`),
             tag,
             type,
             text,
@@ -89,14 +95,43 @@ export class Interactor {
             isVisible,
             boundingBox:
               rect.width > 0
-                ? {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                  }
+                ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
                 : undefined,
           });
+        }
+
+        // Phase 1: Standard selector-based discovery
+        const nodeList = document.querySelectorAll(allSelectors);
+        nodeList.forEach((el) => addElement(el as HTMLElement));
+
+        // Phase 2: cursor:pointer elements (catches custom clickable divs, icons, etc.)
+        // Scan common interactive tags plus elements likely to be clickable
+        const cursorCandidateTags = ['div', 'span', 'img', 'svg', 'li', 'label', 'figure', 'picture', 'i'];
+        for (const candidateTag of cursorCandidateTags) {
+          const candidates = document.querySelectorAll(candidateTag);
+          candidates.forEach((el) => {
+            if (processedEls.has(el)) return;
+            const htmlEl = el as HTMLElement;
+            const style = window.getComputedStyle(htmlEl);
+            if (style.cursor !== 'pointer') return;
+
+            const rect = htmlEl.getBoundingClientRect();
+            // Skip tiny invisible elements and huge container divs
+            if (rect.width < 8 || rect.height < 8) return;
+            if (rect.width > vpHeight * 2 && rect.height > vpHeight * 2) return;
+
+            addElement(htmlEl, htmlEl.id ? `${candidateTag}#${htmlEl.id}` : candidateTag);
+          });
+        }
+
+        // Phase 3: img/svg inside anchors or buttons that weren't caught
+        const mediaEls = document.querySelectorAll('img, svg');
+        mediaEls.forEach((el) => {
+          if (processedEls.has(el)) return;
+          const parent = el.closest('a, button, [role="button"], [onclick]');
+          if (parent && !processedEls.has(parent)) {
+            addElement(parent as HTMLElement);
+          }
         });
 
         // Sort: top-to-bottom, left-to-right
@@ -118,6 +153,13 @@ export class Interactor {
 
     const visibleCount = elements.filter((e) => e.isVisible).length;
     log.info(`📋 Found ${elements.length} interactive elements (${visibleCount} visible)`);
+    if (this.config.verbose) {
+      const cursorPointerCount = elements.filter(
+        (e) => ['div', 'span', 'img', 'svg', 'li', 'label', 'figure', 'picture', 'i'].includes(e.tag),
+      ).length;
+      log.verbose(`  ├─ Selector-matched: ${elements.length - cursorPointerCount}`);
+      log.verbose(`  └─ cursor:pointer detected: ${cursorPointerCount}`);
+    }
     return elements;
   }
 
@@ -131,12 +173,8 @@ export class Interactor {
     const visibleElements = elements.filter((e) => e.isVisible);
 
     // Separate clickables from inputs
-    const clickables = visibleElements.filter(
-      (e) =>
-        ['button', 'a', 'submit', 'tab', 'menuitem', 'link'].includes(e.type) ||
-        e.tag === 'button' ||
-        (e.tag === 'a' && e.href),
-    );
+    const inputTags = new Set(['input', 'textarea', 'select']);
+    const clickables = visibleElements.filter((e) => !inputTags.has(e.tag));
     const inputs = visibleElements.filter(
       (e) =>
         e.tag === 'input' ||
@@ -322,17 +360,20 @@ export class Interactor {
     if (element.text) {
       const trimmedText = element.text.trim();
       if (trimmedText.length > 0 && trimmedText.length < 60) {
-        if (element.tag === 'button' || element.type === 'button' || element.type === 'submit') {
-          // Try exact match first, then fuzzy
-          const exact = page.getByRole('button', { name: trimmedText, exact: true });
+        const roleMap: Record<string, string> = {
+          button: 'button',
+          submit: 'button',
+          a: 'link',
+          link: 'link',
+          tab: 'tab',
+          menuitem: 'menuitem',
+          option: 'option',
+        };
+        const role = roleMap[element.type] || roleMap[element.tag];
+        if (role) {
+          const exact = page.getByRole(role as any, { name: trimmedText, exact: true });
           if (await exact.count() === 1) return exact;
-          const fuzzy = page.getByRole('button', { name: trimmedText, exact: false });
-          if (await fuzzy.count() > 0) return fuzzy.first();
-        }
-        if (element.tag === 'a') {
-          const exact = page.getByRole('link', { name: trimmedText, exact: true });
-          if (await exact.count() === 1) return exact;
-          const fuzzy = page.getByRole('link', { name: trimmedText, exact: false });
+          const fuzzy = page.getByRole(role as any, { name: trimmedText, exact: false });
           if (await fuzzy.count() > 0) return fuzzy.first();
         }
       }

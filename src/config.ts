@@ -42,6 +42,7 @@ export const CLICKABLE_SELECTORS = [
   '[role="button"]',
   '[role="tab"]',
   '[role="menuitem"]',
+  '[role="option"]',
   '[role="link"]',
   '[onclick]',
 ].join(', ');
